@@ -197,6 +197,7 @@ data.WorkingStatusCD = np.where(data.NotWorkingReasonCD == 'GOING TO SCHOOL/STUD
 data.WorkingStatusCD = np.where(data.NotWorkingReasonCD == 'TAKING CARE OF HOUSE OR FAMILY', 'FAMILYorVACATION', data.WorkingStatusCD)
 data.WorkingStatusCD = np.where(data.NotWorkingReasonCD == 'ON PLANNED VACATION', 'FAMILYorVACATION', data.WorkingStatusCD)
 data.PatientHospitalizedFLG = np.where(data.PatientHospitalizedFLG == -1, 'YES', data.PatientHospitalizedFLG)
+data.TimeWalkNBR = np.where(data.TimeWalkNBR == 3600, 360, data.TimeWalkNBR)
 
 data.drop(['HealthConditionCD','NotWorkingReasonCD'], axis=1, inplace=True)
 
@@ -220,12 +221,15 @@ data.describe()
 ###############################################################################
 ### Exploring the data ###
 
-data.DoctorsVisitsNBR.value_counts()
-
 for col in list(data.columns):
     print col
     print data[col].value_counts().iloc[0:10]
     print
+
+data.DoctorsVisitsNBR.hist()
+data.DoctorsVisitsNBR.hist(normed=True)
+data.DoctorsVisitsNBR.describe()
+data.boxplot(column="DoctorsVisitsNBR")
 
 plt.figure(figsize=(15,15))
 sns.heatmap(data.corr())
@@ -234,11 +238,20 @@ plt.cla()
 plt.figure(figsize=(25,25))
 sns.pairplot(data)
 
-data.boxplot(column="DoctorsVisitsNBR")
 
-#This takes a while
+#This takes several minutes
 for col in data.columns:
-    sns.lmplot(x="HeartDiseaseFLG", y=col, data=data[data.AgeRangeNBR > 65], x_jitter = 0.4, y_jitter = 0.4)
+    sns.lmplot(x=col, y="DoctorsVisitsNBR", data=data, x_jitter = 0.2, y_jitter = 0.5)
+    plt.show()
+
+#Exploring some of the most correlated fields
+for col in ['PatientHospitalizedFLG', 'LimitPhysActivityFLG', 'HealthConditionNBR', 'ERVisitsFLG']:
+    sns.violinplot(x=col, y="DoctorsVisitsNBR", \
+    data=data, split=True, inner="quart")
+    plt.show()
+
+for col in ['PatientHospitalizedFLG', 'LimitPhysActivityFLG', 'HealthConditionNBR', 'ERVisitsFLG']:
+    sns.boxplot(x=col, y="DoctorsVisitsNBR", data=data)
     plt.show()
 
 pd.concat([data[data.HeartDiseaseFLG == False].mean(axis = 0), data[data.HeartDiseaseFLG == True].mean(axis = 0)], axis = 1)
@@ -247,9 +260,14 @@ pd.concat([data[data.HeartDiseaseFLG == False].mean(axis = 0), data[data.HeartDi
 #data['AgeRangeCD'] = pd.cut(data.AgeRangeNBR, bins = bins)
 #data['AgeRangeCD'].unique()
 
+'''base rmse to beat is 5.665'''
+from sklearn import metrics
+y = np.empty(data.shape[0])
+y.fill(data.DoctorsVisitsNBR.mean())
+np.sqrt(metrics.mean_squared_error(data.DoctorsVisitsNBR, y))
 
 ###############################################################################
-## LINEAR REGRESSION ###
+### LINEAR REGRESSION ###
 from sklearn.linear_model import LinearRegression
 from sklearn import metrics
 import statsmodels.formula.api as smf
@@ -315,6 +333,63 @@ print lm.pvalues
 print 'r**2 of model with all features:'
 print lm.rsquared
 
+### REPEAT LINEAR REGRESSION WITH SCALING ###
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+
+'''cross-validated mean squared error'''
+linreg = LinearRegression()
+scores = cross_validation.cross_val_score(linreg, features_scaled, response, scoring='mean_squared_error', cv=5)
+print 'cross-validated root mean squared error - 4.9165'
+print np.sqrt(-scores.mean())
+
+###############################################################################
+#### NEED TO ADD RIDGE AND LASSO REGRESSION ####
+features, response = data.ix[:,1:], data.DoctorsVisitsNBR
+X, y = data.ix[:,1:], data.DoctorsVisitsNBR
+X_train, X_test, y_train, y_test = train_test_split(features, response, random_state=1)
+
+# ridge regression (alpha must be positive, larger means more regularization)
+from sklearn.linear_model import Ridge
+rreg = Ridge(alpha=0.1, normalize=True)
+rreg.fit(X_train, y_train)
+rreg.coef_
+preds = rreg.predict(X_test)
+np.sqrt(metrics.mean_squared_error(y_test, preds))
+'''alpha of 0.1 results in rmse of 4.9055'''
+
+# use RidgeCV to select best alpha
+from sklearn.linear_model import RidgeCV
+alpha_range = 10.**np.arange(-2, 3)
+rregcv = RidgeCV(normalize=True, scoring='mean_squared_error', alphas=alpha_range,\
+store_cv_values = True)
+rregcv.fit(X_train, y_train)
+rregcv.cv_values_
+rregcv.alpha_
+preds = rregcv.predict(X_test)
+np.sqrt(metrics.mean_squared_error(y_test, preds))
+'''alpha of 0.1 results in rmse of 4.9047'''
+
+# lasso (alpha must be positive, larger means more regularization)
+from sklearn.linear_model import Lasso
+las = Lasso(alpha=0.01, normalize=True)
+las.fit(X_train, y_train)
+las.coef_
+preds = las.predict(X_test)
+np.sqrt(metrics.mean_squared_error(y_test, preds))
+'''alpha of 0.1 results in rmse of 5.6396'''
+
+# use LassoCV to select best alpha (tries 100 alphas by default)
+from sklearn.linear_model import LassoCV
+lascv = LassoCV(normalize=True)
+lascv.fit(X_train, y_train)
+lascv.alpha_
+lascv.coef_
+preds = lascv.predict(X_test)
+np.sqrt(metrics.mean_squared_error(y_test, preds))
+'''alpha of 0.1 results in rmse of 4.90478'''
+
 ###############################################################################
 #### Decision Trees ####
 from sklearn import tree
@@ -334,7 +409,8 @@ treereg = DecisionTreeRegressor(max_depth=10, random_state=1)
 scores = cross_val_score(treereg, X_train, y_train, cv=3, scoring='mean_squared_error')
 np.mean(np.sqrt(-scores))
 
-'''identifing most important features'''
+'''identifing most important features - appear to be PatientHospitalizedFLG, 
+LimitPhysActivityFLG, HealthConditionNBR, ERVisitsFLG, BMINBR'''
 treereg = DecisionTreeRegressor(max_depth=10, random_state=1)
 treereg.fit(X_train, y_train)
 
@@ -425,18 +501,359 @@ rf.fit(X_train, y_train)
 
 pd.DataFrame({'feature':feature_cols, 'importance':rf.feature_importances_})
 
-'''the below oob says the best score is 0.215 and the best rmse is 1.850'''
+'''the below oob says the oob score is 0.215 and the rmse is 4.967'''
 float(rf.oob_score_)
 y_pred = rf.predict(X_test)
 print np.sqrt(metrics.mean_squared_error(y_test, y_pred))
 
-### grid search ###
+### grid search - TAKES A COUPLE HOURS TO RUN ###
 rf = RandomForestRegressor(max_features='auto', oob_score=True, random_state=1, criterion = 'mse')
-n_estimators = range(50, 300, 50)
+n_estimators = range(50, 600, 50)
 param_grid = dict(n_estimators=n_estimators)
 #param_grid = dict(max_depth=depth_range)
-grid = GridSearchCV(rf, param_grid, cv=5, scoring='mean_squared_error')
+grid = GridSearchCV(rf, param_grid, cv=3, scoring='mean_squared_error')
 grid.fit(X_train, y_train)
+
+grid_mean_scores = [result[1] for result in grid.grid_scores_]
+
+'''250 estimators is best - 4.967 rmse.  RMSE keeps decreasing, so need to go higher to see if there
+is a better model'''
+# Plot the results of the grid search
+plt.figure()
+plt.plot(n_estimators, grid_mean_scores)
+plt.hold(True)
+plt.grid(True)
+plt.plot(grid.best_params_['n_estimators'], grid.best_score_, 'ro', markersize=12, markeredgewidth=1.5,
+         markerfacecolor='None', markeredgecolor='r')
+
+# Get the best estimator
+best = grid.best_estimator_
+print np.sqrt(-max(grid_mean_scores))
+
+'''run best model (250 n_estimators) on test data'''
+rf = RandomForestRegressor(n_estimators=250, max_features='auto', oob_score=True, random_state=1, criterion = 'mse')
+rf.fit(X_train, y_train)
+
+pd.DataFrame({'feature':feature_cols, 'importance':rf.feature_importances_})
+
+'''the below oob says the best rmse is 4.9508'''
+float(rf.oob_score_)
+y_pred = rf.predict(X_test)
+print np.sqrt(metrics.mean_squared_error(y_test, y_pred))
+
+### Additional Random Forest Parameter Optimization ###
+from sklearn.grid_search import RandomizedSearchCV
+from time import time
+from scipy.stats import randint as sp_randint
+
+# specify parameters and distributions to sample from
+param_dist = {"n_estimators": range(200, 800, 50),
+              "max_depth": [5, None],
+              "max_features": sp_randint(3, 52),
+              "min_samples_split": sp_randint(2, 100),
+              "min_samples_leaf": sp_randint(1, 50),
+              "bootstrap": [True, False]}
+
+# run randomized search
+rf = RandomForestRegressor(oob_score=False, random_state=1, criterion = 'mse', \
+n_jobs = -1)
+
+n_iter_search = 1000
+random_search = RandomizedSearchCV(rf, param_distributions=param_dist,\
+n_iter=n_iter_search)
+
+start = time()
+random_search.fit(X, y)
+print("RandomizedSearchCV took %.2f seconds for %d candidates"
+      " parameter settings." % ((time() - start), n_iter_search))
+
+random_search.grid_scores_
+random_search.best_score_
+random_search.best_estimator_
+random_search.best_params_
+
+'''best search the first time around resulted in the following parameters and 
+took 140 minutes to run:
+
+RandomForestRegressor(bootstrap=False, criterion='mse', max_depth=None,
+           max_features=11, max_leaf_nodes=None, min_samples_leaf=5,
+           min_samples_split=34, min_weight_fraction_leaf=0.0,
+           n_estimators=500, n_jobs=-1, oob_score=False, random_state=1,
+           verbose=0, warm_start=False)
+
+'''           
+'''run best model (parameters listed above) on test data'''
+rf = random_search.best_estimator_
+rf.fit(X_train, y_train)
+
+feature_importanceRFR1 = pd.DataFrame({'feature':feature_cols, 'importance':rf.feature_importances_})
+
+'''the first time the best rmse is 4.8400'''
+y_pred = rf.predict(X_test)
+print np.sqrt(metrics.mean_squared_error(y_test, y_pred))
+
+
+###############################################################################
+#### Principle Component Analysis ####
+from sklearn import decomposition
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+pca = decomposition.PCA(n_components=X_scaled.shape[1])
+X_r = pca.fit_transform(X_scaled)
+
+# Percentage of variance explained for each components
+print('explained variance ratio: %s'
+      % str(pca.explained_variance_ratio_))
+
+plt.cla()
+plt.plot(pca.explained_variance_ratio_)
+plt.title('Variance explained by each principal component')
+plt.ylabel(' % Variance Explained')
+plt.xlabel('Principal component')
+
+### REPEAT LINEAR REGRESSION WITH SCALING AND PCA ###
+'''7 components based on elbow rule from PCA chart above '''
+pca = decomposition.PCA(n_components=7)
+X_r = pca.fit_transform(X_scaled)
+
+'''cross-validated mean squared error'''
+linreg = LinearRegression()
+scores = cross_validation.cross_val_score(linreg, X_r, response, scoring='mean_squared_error', cv=5)
+print 'cross-validated root mean squared error - 5.08'
+print np.sqrt(-scores.mean())
+
+'''testing multiple PCA component numbers - best RMSE is ''' 
+
+n_components = range(X_scaled.shape[1]-1)
+rmseList = []
+for i in n_components:
+    pca = decomposition.PCA(n_components=i+1)
+    X_r = pca.fit_transform(X_scaled)
+    '''cross-validated mean squared error'''
+    linreg = LinearRegression()
+    scores = cross_validation.cross_val_score(linreg, X_r, response, scoring='mean_squared_error', cv=5)
+    print 'cross-validated root mean squared error for PCA with %s components' % (i+1)
+    print np.sqrt(-scores.mean())
+    rmseList.append(np.sqrt(-scores.mean()))
+    print
+
+'''plot of RMSE for linear regression based on PCA of various N's'''
+'''Best rmse is 4.9164'''
+plt.figure()
+plt.plot(n_components, rmseList)
+plt.grid(True)
+
+
+
+
+###############################################################################
+
+###############################################################################
+
+##### BELOW CODE IS FOR PREDICTING IF DoctorsVisitsNBR is Greater than 4 ######
+
+###############################################################################
+
+###############################################################################
+
+###############################################################################
+
+##### LOGISTIC REGRESSION  WITH > 4 DOCTORS VISITS #####
+
+data['DoctorsVisitsGT4'] = np.where(data.DoctorsVisitsNBR > 4, True, False)
+'''dummy answer is 29.4%'''
+data.DoctorsVisitsGT4.mean()
+
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGT4
+X, y = features, response 
+
+from sklearn import metrics
+from sklearn import cross_validation
+from sklearn.cross_validation import train_test_split
+
+'''initial fits below to explore the data'''
+from sklearn.linear_model import LogisticRegression
+from sklearn import cross_validation
+
+'''running on train and test data'''
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
+logreg = LogisticRegression(C=1e9)
+logreg.fit(X_train, y_train)
+
+print 'intercept and coefficient'
+print logreg.intercept_ 
+print logreg.coef_
+
+y_preds = logreg.predict(X_test)
+
+testResults = pd.DataFrame(zip(y_preds, y_test), columns = ['Prediction','Actual'])
+testResults['Correct'] = testResults.Prediction == testResults.Actual 
+
+'''results in 70.66% accuracy'''
+print 'accuracy:'
+print metrics.accuracy_score(testResults.Actual, testResults.Prediction)
+print 'classification report:'
+print metrics.classification_report(testResults.Actual, testResults.Prediction)
+
+'''cross-validated accuracy'''
+scores = cross_validation.cross_val_score(logreg, X, y, scoring='accuracy', cv=5)
+'''average accuracy'''
+print 'cross-validated accuracy'
+print scores.mean()
+
+##### LOGISTIC REGRESSION  WITH > 11 DOCTORS VISITS #####
+
+data['DoctorsVisitsGT4'] = np.where(data.DoctorsVisitsNBR > 11, True, False)
+'''dummy answer is 6.15%'''
+data.DoctorsVisitsGT4.mean()
+
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGT4
+X, y = features, response 
+
+from sklearn import metrics
+from sklearn import cross_validation
+from sklearn.cross_validation import train_test_split
+
+'''initial fits below to explore the data'''
+from sklearn.linear_model import LogisticRegression
+from sklearn import cross_validation
+
+'''running on train and test data'''
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
+logreg = LogisticRegression(C=1e9)
+logreg.fit(X_train, y_train)
+
+print 'intercept and coefficient'
+print logreg.intercept_ 
+print logreg.coef_
+
+y_preds = logreg.predict(X_test)
+
+testResults = pd.DataFrame(zip(y_preds, y_test), columns = ['Prediction','Actual'])
+testResults['Correct'] = testResults.Prediction == testResults.Actual 
+
+'''results in 93.91% accuracy'''
+print 'accuracy:'
+print metrics.accuracy_score(testResults.Actual, testResults.Prediction)
+print 'classification report:'
+print metrics.classification_report(testResults.Actual, testResults.Prediction)
+
+'''cross-validated accuracy of 93.85%'''
+scores = cross_validation.cross_val_score(logreg, X, y, scoring='accuracy', cv=5)
+'''average accuracy'''
+print 'cross-validated accuracy'
+print scores.mean()
+
+###############################################################################
+#### Decision Trees ####
+from sklearn import tree
+from sklearn.cross_validation import train_test_split
+
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGT4
+X, y = features, response 
+
+X_train, X_test, y_train, y_test = train_test_split(features, response, random_state=1)
+
+
+from sklearn.tree import DecisionTreeClassifier
+ctree = tree.DecisionTreeClassifier(max_depth = 5, random_state=1)
+ctree.fit(X_train, y_train)
+
+'''note: lowest cross validated rmse is 56.97%'''
+from sklearn.cross_validation import cross_val_score
+ctree = tree.DecisionTreeClassifier(random_state=1)
+cross_val_score(ctree, X_train, y_train, cv=10, scoring='roc_auc').mean()
+
+#gathering importance
+ctree = tree.DecisionTreeClassifier(max_depth=5, random_state=1)
+ctree.fit(X_train, y_train)
+
+feature_cols = features.columns
+pd.DataFrame({'feature':feature_cols, 'importance':ctree.feature_importances_})
+
+from sklearn.tree import export_graphviz
+with open("HeartDisease_tree.dot", 'wb') as f:
+    f = export_graphviz(ctree, out_file=f, feature_names=feature_cols)
+#below code didn't work - converted with GVEdit GUI
+from os import system
+system("dot -Tpng HeartDisease.dot -o HeartDisease.png")
+
+from sklearn.grid_search import GridSearchCV
+ctree = tree.DecisionTreeClassifier(random_state=1)
+depth_range = range(1, 25)
+max_feaure_range = range(1,40)
+param_grid = dict(max_depth=depth_range, max_features=max_feaure_range)
+#param_grid = dict(max_depth=depth_range)
+grid = GridSearchCV(ctree, param_grid, cv=3, scoring='roc_auc')
+grid.fit(features, response)
+
+# Check out the scores of the grid search
+grid_mean_scores = [result[1] for result in grid.grid_scores_]
+
+
+# Plot the results of the grid search
+plt.figure()
+plt.plot(depth_range, grid_mean_scores)
+plt.hold(True)
+plt.grid(True)
+plt.plot(grid.best_params_['max_depth'], grid.best_score_, 'ro', markersize=12, markeredgewidth=1.5,
+         markerfacecolor='None', markeredgecolor='r')
+
+# Get the best estimator
+best = grid.best_estimator_
+
+'''ideal feaures results in 21.904 rmse'''
+cross_val_score(best, features, response, cv=10, scoring='roc_auc').mean()
+
+### sensitize additional parameters ###
+from sklearn.grid_search import GridSearchCV
+ctree = tree.DecisionTreeClassifier(random_state=1)
+depth_range = range(1, 20)
+max_feaure_range = range(1,20)
+param_grid = dict(max_depth=depth_range, max_features=max_feaure_range)
+#param_grid = dict(max_depth=depth_range)
+grid = GridSearchCV(ctree, param_grid, cv=5, scoring='roc_auc')
+grid.fit(features, response)
+
+# Get the best estimator
+best = grid.best_estimator_
+
+'''ideal feaures results in [__]'''
+cross_val_score(best, features, response, cv=10, scoring='roc_auc')
+
+#tree with the best parameters
+ctree = best
+ctree.fit(X_train, y_train)
+
+feature_cols = features.columns
+pd.DataFrame({'feature':feature_cols, 'importance':ctree.feature_importances_})
+
+from sklearn.tree import export_graphviz
+with open("HeartDisease_tree2.dot", 'wb') as f:
+    f = export_graphviz(ctree, out_file=f, feature_names=feature_cols)
+
+###############################################################################
+#### Random forests ####
+from sklearn.ensemble import RandomForestClassifier
+rfclf = RandomForestClassifier(n_estimators=100, max_features='auto', oob_score=True, random_state=1)
+rfclf.fit(features, response)
+
+cross_val_score(rfclf, features, response, cv=10, scoring='accuracy')
+
+pd.DataFrame({'feature':feature_cols, 'importance':rfclf.feature_importances_})
+
+float(rfclf.oob_score_ )
+
+### grid search ###
+rfclf = RandomForestClassifier(oob_score=True, random_state=1, n_jobs = -1)
+n_estimators = range(100, 600, 100)
+depth_range = range(5, 30, 2)
+param_grid = dict(n_estimators=n_estimators, max_depth=depth_range)
+grid = GridSearchCV(rfclf, param_grid, cv=5, scoring='accuracy')
+grid.fit(features, response)
 
 grid_mean_scores = [result[1] for result in grid.grid_scores_]
 
@@ -451,16 +868,25 @@ plt.plot(grid.best_params_['max_depth'], grid.best_score_, 'ro', markersize=12, 
 # Get the best estimator
 best = grid.best_estimator_
 
-'''ideal feaures results in [__]'''
-cross_val_score(best, features, response, cv=10, scoring='mean_squared_error')
+''' Best parameters from grid search are listed below:
+RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini',
+            max_depth=29, max_features='auto', max_leaf_nodes=None,
+            min_samples_leaf=1, min_samples_split=2,
+            min_weight_fraction_leaf=0.0, n_estimators=400, n_jobs=-1,
+            oob_score=True, random_state=1, verbose=0, warm_start=False
+'''
+
+'''ideal feaures results in 93.9 accuracy'''
+cross_val_score(best, features, response, cv=5, scoring='accuracy')
+
+'''best features are AgeRangeNBR, IncomeNBR, BMINBR, SodaNBR, FastFoodNBR, 
+   TimeWalkNBR, PatientHospitalizedFLG, EducationCD'''
+
+pd.DataFrame({'feature':feature_cols, 'importance':best.feature_importances_})
+
 
 
 ###############################################################################
-
-
-
-
-
 
 
 ###############################################################################
