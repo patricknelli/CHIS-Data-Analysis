@@ -14,9 +14,12 @@ import seaborn as sns
 ### Importing and concatenating 2013 and 2014 data ###
 
 
-data2014 = pd.read_stata('ADULT2014.dta')
-data2013 = pd.read_stata('ADULT2013.dta')
-data201112 = pd.read_stata('ADULT201112.dta')
+data2014 = pd.read_stata('data/ADULT2014.dta')
+data2013 = pd.read_stata('data/ADULT2013.dta')
+data201112 = pd.read_stata('data/ADULT201112.dta')
+data2009 = pd.read_stata('data/ADULT2009.dta')
+data2007 = pd.read_stata('data/ADULT2007.dta')
+
 '''201112 doesn't have: ac46 (sweet drink consumption), ac47 (water consumption),
 ac48_p1 (milk), ah102_p (nights in a hospital) - I originally wanted these columns
 but it is probably better to have 4 years worth of data compared to 2'''
@@ -25,21 +28,32 @@ data201112.rename(columns={'ac31': 'ac31_p1', 'ah102_p': 'ah102_p1', \
 'aheduc': 'ahedc_p1', 'ak2':'ak2_p1', 'hhsize_p': 'hhsize_p1', 'ombsrreo':'ombsrr_p1', \
 'srage_p':'srage_p1', 'povll':'povll_aca', 'wrkst':'wrkst_p1'}, inplace=True)
 
+data2009.rename(columns={'ac31': 'ac31_p1', 'ah102_p': 'ah102_p1', \
+'aheduc': 'ahedc_p1', 'ak2':'ak2_p1', 'hhsize_p': 'hhsize_p1', 'ombsrreo':'ombsrr_p1', \
+'srage_p':'srage_p1', 'povll':'povll_aca', 'wrkst':'wrkst_p1'}, inplace=True)
+
+data2007.rename(columns={'ac31': 'ac31_p1', 'ah102_p': 'ah102_p1', \
+'aheduc': 'ahedc_p1', 'ak2':'ak2_p1', 'hhsize_p': 'hhsize_p1', 'ombsrreo':'ombsrr_p1', \
+'srage_p':'srage_p1', 'povll':'povll_aca', 'wrkst':'wrkst_p1'}, inplace=True)
+
 data201112['SurveyYear'] = 2011
 data2014['SurveyYear'] = 2014
 data2013['SurveyYear'] = 2013
+data2009['SurveyYear'] = 2009
 
 #commonColumns = list(set(data2014.columns) & set(data2013.columns))
-commonColumnsALL = list(set(data2014.columns) & set(data2013.columns) & set(data201112.columns))
+commonColumnsALL = list(set(data2014.columns) & set(data2013.columns) & set(data201112.columns) & set(data2009.columns) )
 
 categoryColumns = list(data2014[commonColumnsALL].dtypes[data2014[commonColumnsALL].dtypes == 'category'].index)
 for column in categoryColumns:
     data2014[column] = data2014[column].astype('object')
     data2013[column] = data2013[column].astype('object')
     data201112[column] = data201112[column].astype('object')
+    data2009[column] = data2009[column].astype('object')
 
 
-data = pd.concat([data2014[commonColumnsALL],data2013[commonColumnsALL],data201112[commonColumnsALL]], ignore_index=True)
+
+data = pd.concat([data2014[commonColumnsALL],data2013[commonColumnsALL],data201112[commonColumnsALL],data2009[commonColumnsALL]], ignore_index=True)
 
 data.head()
 data.info()
@@ -209,6 +223,8 @@ YesNoCols = ['AsthmaHistFLG', 'DiabetesFLG', 'HighBPFLG', 'BloodPressureMedFLG',
 for col in YesNoCols:
     data[col] = np.where(data[col] == 'YES', True, False)
 
+data.to_csv('data.csv', index=False)
+
 data = pd.concat([pd.get_dummies(data, columns = ['RaceCD', 'SmokingCD', 'WorkingStatusCD','MaritalCD'], prefix_sep='')], axis = 1)
 
 objectCols = ['SodaNBR','FastFoodNBR','IncomeNBR']
@@ -345,7 +361,7 @@ print 'cross-validated root mean squared error - 4.9165'
 print np.sqrt(-scores.mean())
 
 ###############################################################################
-#### NEED TO ADD RIDGE AND LASSO REGRESSION ####
+#### RIDGE AND LASSO REGRESSION ####
 features, response = data.ix[:,1:], data.DoctorsVisitsNBR
 X, y = data.ix[:,1:], data.DoctorsVisitsNBR
 X_train, X_test, y_train, y_test = train_test_split(features, response, random_state=1)
@@ -558,7 +574,7 @@ param_dist = {"n_estimators": range(200, 800, 50),
 rf = RandomForestRegressor(oob_score=False, random_state=1, criterion = 'mse', \
 n_jobs = -1)
 
-n_iter_search = 1000
+n_iter_search = 100
 random_search = RandomizedSearchCV(rf, param_distributions=param_dist,\
 n_iter=n_iter_search)
 
@@ -653,65 +669,28 @@ plt.grid(True)
 
 ###############################################################################
 
-##### BELOW CODE IS FOR PREDICTING IF DoctorsVisitsNBR is Greater than 4 ######
+##### BELOW CODE PREDICTS IF DoctorsVisitsNBR is Greater than a specific X ####
 
 ###############################################################################
 
 ###############################################################################
 
 ###############################################################################
-
-##### LOGISTIC REGRESSION  WITH > 4 DOCTORS VISITS #####
-
-data['DoctorsVisitsGT4'] = np.where(data.DoctorsVisitsNBR > 4, True, False)
-'''dummy answer is 29.4%'''
-data.DoctorsVisitsGT4.mean()
-
-features, response = data.ix[:,1:-1], data.DoctorsVisitsGT4
-X, y = features, response 
-
-from sklearn import metrics
-from sklearn import cross_validation
-from sklearn.cross_validation import train_test_split
-
-'''initial fits below to explore the data'''
-from sklearn.linear_model import LogisticRegression
-from sklearn import cross_validation
-
-'''running on train and test data'''
-X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
-logreg = LogisticRegression(C=1e9)
-logreg.fit(X_train, y_train)
-
-print 'intercept and coefficient'
-print logreg.intercept_ 
-print logreg.coef_
-
-y_preds = logreg.predict(X_test)
-
-testResults = pd.DataFrame(zip(y_preds, y_test), columns = ['Prediction','Actual'])
-testResults['Correct'] = testResults.Prediction == testResults.Actual 
-
-'''results in 70.66% accuracy'''
-print 'accuracy:'
-print metrics.accuracy_score(testResults.Actual, testResults.Prediction)
-print 'classification report:'
-print metrics.classification_report(testResults.Actual, testResults.Prediction)
-
-'''cross-validated accuracy'''
-scores = cross_validation.cross_val_score(logreg, X, y, scoring='accuracy', cv=5)
-'''average accuracy'''
-print 'cross-validated accuracy'
-print scores.mean()
-
 ##### LOGISTIC REGRESSION  WITH > 11 DOCTORS VISITS #####
 
-data['DoctorsVisitsGT4'] = np.where(data.DoctorsVisitsNBR > 11, True, False)
+data.DoctorsVisitsNBR.value_counts(normalize = True, sort=False)
+data['DoctorsVisitsGTX'] = np.where(data.DoctorsVisitsNBR > 11, True, False)
 '''dummy answer is 6.15%'''
-data.DoctorsVisitsGT4.mean()
+data.DoctorsVisitsGTX.mean()
 
-features, response = data.ix[:,1:-1], data.DoctorsVisitsGT4
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
 X, y = features, response 
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+X_scaled = scaler.fit_transform(X)
+
 
 from sklearn import metrics
 from sklearn import cross_validation
@@ -719,7 +698,6 @@ from sklearn.cross_validation import train_test_split
 
 '''initial fits below to explore the data'''
 from sklearn.linear_model import LogisticRegression
-from sklearn import cross_validation
 
 '''running on train and test data'''
 X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
@@ -741,19 +719,25 @@ print metrics.accuracy_score(testResults.Actual, testResults.Prediction)
 print 'classification report:'
 print metrics.classification_report(testResults.Actual, testResults.Prediction)
 
-'''cross-validated accuracy of 93.85%'''
+'''cross-validated accuracy of 93.85% without scale'''
+logreg = LogisticRegression(C=1e9)
 scores = cross_validation.cross_val_score(logreg, X, y, scoring='accuracy', cv=5)
-'''average accuracy'''
-print 'cross-validated accuracy'
 print scores.mean()
+
+'''cross-validated accuracy of 93.85% with scale (nearly identical result)'''
+logreg = LogisticRegression(C=1e9)
+scores = cross_validation.cross_val_score(logreg, X_scaled, y, scoring='accuracy', cv=5)
+print scores.mean()
+
 
 ###############################################################################
 #### Decision Trees ####
 from sklearn import tree
 from sklearn.cross_validation import train_test_split
 
-features, response = data.ix[:,1:-1], data.DoctorsVisitsGT4
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
 X, y = features, response 
+
 
 X_train, X_test, y_train, y_test = train_test_split(features, response, random_state=1)
 
@@ -762,7 +746,7 @@ from sklearn.tree import DecisionTreeClassifier
 ctree = tree.DecisionTreeClassifier(max_depth = 5, random_state=1)
 ctree.fit(X_train, y_train)
 
-'''note: lowest cross validated rmse is 56.97%'''
+'''note: lowest cross validated rmse is 56.97% with max_depth of 5'''
 from sklearn.cross_validation import cross_val_score
 ctree = tree.DecisionTreeClassifier(random_state=1)
 cross_val_score(ctree, X_train, y_train, cv=10, scoring='roc_auc').mean()
@@ -775,65 +759,12 @@ feature_cols = features.columns
 pd.DataFrame({'feature':feature_cols, 'importance':ctree.feature_importances_})
 
 from sklearn.tree import export_graphviz
-with open("HeartDisease_tree.dot", 'wb') as f:
+with open("DoctorsVisits_tree.dot", 'wb') as f:
     f = export_graphviz(ctree, out_file=f, feature_names=feature_cols)
 #below code didn't work - converted with GVEdit GUI
 from os import system
-system("dot -Tpng HeartDisease.dot -o HeartDisease.png")
+system("dot -Tpng DoctorsVisits_tree.dot -o DoctorsVisits_tree.png")
 
-from sklearn.grid_search import GridSearchCV
-ctree = tree.DecisionTreeClassifier(random_state=1)
-depth_range = range(1, 25)
-max_feaure_range = range(1,40)
-param_grid = dict(max_depth=depth_range, max_features=max_feaure_range)
-#param_grid = dict(max_depth=depth_range)
-grid = GridSearchCV(ctree, param_grid, cv=3, scoring='roc_auc')
-grid.fit(features, response)
-
-# Check out the scores of the grid search
-grid_mean_scores = [result[1] for result in grid.grid_scores_]
-
-
-# Plot the results of the grid search
-plt.figure()
-plt.plot(depth_range, grid_mean_scores)
-plt.hold(True)
-plt.grid(True)
-plt.plot(grid.best_params_['max_depth'], grid.best_score_, 'ro', markersize=12, markeredgewidth=1.5,
-         markerfacecolor='None', markeredgecolor='r')
-
-# Get the best estimator
-best = grid.best_estimator_
-
-'''ideal feaures results in 21.904 rmse'''
-cross_val_score(best, features, response, cv=10, scoring='roc_auc').mean()
-
-### sensitize additional parameters ###
-from sklearn.grid_search import GridSearchCV
-ctree = tree.DecisionTreeClassifier(random_state=1)
-depth_range = range(1, 20)
-max_feaure_range = range(1,20)
-param_grid = dict(max_depth=depth_range, max_features=max_feaure_range)
-#param_grid = dict(max_depth=depth_range)
-grid = GridSearchCV(ctree, param_grid, cv=5, scoring='roc_auc')
-grid.fit(features, response)
-
-# Get the best estimator
-best = grid.best_estimator_
-
-'''ideal feaures results in [__]'''
-cross_val_score(best, features, response, cv=10, scoring='roc_auc')
-
-#tree with the best parameters
-ctree = best
-ctree.fit(X_train, y_train)
-
-feature_cols = features.columns
-pd.DataFrame({'feature':feature_cols, 'importance':ctree.feature_importances_})
-
-from sklearn.tree import export_graphviz
-with open("HeartDisease_tree2.dot", 'wb') as f:
-    f = export_graphviz(ctree, out_file=f, feature_names=feature_cols)
 
 ###############################################################################
 #### Random forests ####
@@ -876,13 +807,150 @@ RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini',
             oob_score=True, random_state=1, verbose=0, warm_start=False
 '''
 
-'''ideal feaures results in 93.9 accuracy'''
+'''ideal feaures results in 93.9% accuracy'''
 cross_val_score(best, features, response, cv=5, scoring='accuracy')
 
 '''best features are AgeRangeNBR, IncomeNBR, BMINBR, SodaNBR, FastFoodNBR, 
    TimeWalkNBR, PatientHospitalizedFLG, EducationCD'''
 
 pd.DataFrame({'feature':feature_cols, 'importance':best.feature_importances_})
+
+### Additional Random Forest Parameter Optimization ###
+from sklearn.grid_search import RandomizedSearchCV
+from time import time
+from scipy.stats import randint as sp_randint
+
+# specify parameters and distributions to sample from
+param_dist = {"n_estimators": range(200, 800, 100),
+              "max_depth": [5, None],
+              "max_features": sp_randint(3, 52),
+              "min_samples_split": sp_randint(2, 100),
+              "min_samples_leaf": sp_randint(1, 50),
+              "bootstrap": [True, False]}
+
+# run randomized search
+rf = RandomForestClassifier(oob_score=False, random_state=1, criterion = 'gini', \
+n_jobs = -1)
+
+n_iter_search = 100
+random_search = RandomizedSearchCV(rf, param_distributions=param_dist,\
+n_iter=n_iter_search)
+
+start = time()
+random_search.fit(X, y)
+print("RandomizedSearchCV took %.2f seconds for %d candidates"
+      " parameter settings." % ((time() - start), n_iter_search))
+
+random_search.grid_scores_
+random_search.best_score_
+random_search.best_estimator_
+random_search.best_params_
+
+'''best search resulted in 93.94% accurach and the following parameters and 
+took 4.2 hours to run:
+
+RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini',
+            max_depth=None, max_features=49, max_leaf_nodes=None,
+            min_samples_leaf=9, min_samples_split=16,
+            min_weight_fraction_leaf=0.0, n_estimators=300, n_jobs=-1,
+            oob_score=False, random_state=1, verbose=0, warm_start=False)
+
+'''           
+'''run best model (parameters listed above) on test data'''
+rf = random_search.best_estimator_
+rf.fit(X_scaled, y)
+
+feature_importanceRFR1 = pd.DataFrame({'feature':feature_cols, 'importance':rf.feature_importances_})
+
+
+###############################################################################
+############## SVM ############
+from sklearn import svm
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+X_scaled = scaler.fit_transform(X)
+
+#### Initial Fit ####
+
+clf = svm.SVC(C=1.0, kernel='poly') # ‘linear’, ‘poly’, ‘rbf’, ‘sigmoid’
+clf.fit(X_scaled, y)
+
+'''average accuracy of 93.88% for rbf; 93.84% for linear 
+   and 93.58% for ploy (3 degrees)'''
+crossValScore = cross_val_score(clf, X_scaled, y, cv=3, scoring='accuracy')
+crossValScore.mean()
+
+###############################################################################
+#########   PCA   ##########
+from sklearn import decomposition
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+pca = decomposition.PCA(n_components=X_scaled.shape[1])
+X_r = pca.fit_transform(X_scaled)
+
+# Percentage of variance explained for each components
+print('explained variance ratio: %s'
+      % str(pca.explained_variance_ratio_))
+
+plt.cla()
+plt.plot(pca.explained_variance_ratio_)
+plt.title('Variance explained by each principal component')
+plt.ylabel(' % Variance Explained')
+plt.xlabel('Principal component')
+
+### REPEAT LOGISTIC REGRESSION WITH SCALING AND PCA ###
+'''7 components based on elbow rule from PCA chart above '''
+pca = decomposition.PCA(n_components=7)
+X_r = pca.fit_transform(X_scaled)
+
+'''cross-validated accuracy of 93.78% with 7 components'''
+logreg = LogisticRegression(C=1e9)
+scores = cross_validation.cross_val_score(logreg, X_r, y, scoring='accuracy', cv=5)
+print scores.mean()
+
+###############################################################################
+###############################################################################
+### KNN ### 
+
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.cross_validation import train_test_split
+from sklearn.cross_validation import cross_val_score
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
+X, y = features, response 
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+X_scaled = scaler.fit_transform(X)
+
+'''running on train / test data to determine optimal k value'''
+#X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
+#knn = KNeighborsClassifier(n_neighbors=11)
+#knn.fit(X_train, y_train)
+#knn.score(X_test, y_test)
+
+    from sklearn.grid_search import GridSearchCV
+    knn = KNeighborsClassifier()
+    k_range = range(1, 30, 2)
+    param_grid = dict(n_neighbors=k_range)
+    grid = GridSearchCV(knn, param_grid, cv=5, scoring='accuracy')
+    grid.fit(X_scaled, y)
+
+grid.grid_scores_
+grid_mean_scores = [result[1] for result in grid.grid_scores_]
+
+# plot the results
+plt.figure()
+plt.plot(k_range, grid_mean_scores)
+
+print 'best cross validated score'
+grid.best_score_     # shows us the best score
+grid.best_params_    # shows us the optimal parameters
+grid.best_estimator_ # this is the actual model
 
 
 
