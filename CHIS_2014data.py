@@ -18,7 +18,6 @@ data2014 = pd.read_stata('data/ADULT2014.dta')
 data2013 = pd.read_stata('data/ADULT2013.dta')
 data201112 = pd.read_stata('data/ADULT201112.dta')
 data2009 = pd.read_stata('data/ADULT2009.dta')
-data2007 = pd.read_stata('data/ADULT2007.dta')
 
 '''201112 doesn't have: ac46 (sweet drink consumption), ac47 (water consumption),
 ac48_p1 (milk), ah102_p (nights in a hospital) - I originally wanted these columns
@@ -32,13 +31,9 @@ data2009.rename(columns={'ac31': 'ac31_p1', 'ah102_p': 'ah102_p1', \
 'aheduc': 'ahedc_p1', 'ak2':'ak2_p1', 'hhsize_p': 'hhsize_p1', 'ombsrreo':'ombsrr_p1', \
 'srage_p':'srage_p1', 'povll':'povll_aca', 'wrkst':'wrkst_p1'}, inplace=True)
 
-data2007.rename(columns={'ac31': 'ac31_p1', 'ah102_p': 'ah102_p1', \
-'aheduc': 'ahedc_p1', 'ak2':'ak2_p1', 'hhsize_p': 'hhsize_p1', 'ombsrreo':'ombsrr_p1', \
-'srage_p':'srage_p1', 'povll':'povll_aca', 'wrkst':'wrkst_p1'}, inplace=True)
-
-data201112['SurveyYear'] = 2011
 data2014['SurveyYear'] = 2014
 data2013['SurveyYear'] = 2013
+data201112['SurveyYear'] = 2011
 data2009['SurveyYear'] = 2009
 
 #commonColumns = list(set(data2014.columns) & set(data2013.columns))
@@ -54,6 +49,7 @@ for column in categoryColumns:
 
 
 data = pd.concat([data2014[commonColumnsALL],data2013[commonColumnsALL],data201112[commonColumnsALL],data2009[commonColumnsALL]], ignore_index=True)
+weights = pd.concat([data2014.rakedw0,data2013.rakedw0,data201112.rakedw0,data2009.rakedw0], ignore_index=True)
 
 data.head()
 data.info()
@@ -223,13 +219,13 @@ YesNoCols = ['AsthmaHistFLG', 'DiabetesFLG', 'HighBPFLG', 'BloodPressureMedFLG',
 for col in YesNoCols:
     data[col] = np.where(data[col] == 'YES', True, False)
 
-data.to_csv('data.csv', index=False)
-
 data = pd.concat([pd.get_dummies(data, columns = ['RaceCD', 'SmokingCD', 'WorkingStatusCD','MaritalCD'], prefix_sep='')], axis = 1)
 
 objectCols = ['SodaNBR','FastFoodNBR','IncomeNBR']
 for col in objectCols:
     data[col] = data[col].astype(float)
+
+#data.to_csv('dataAll_transformed.csv', index=False)
 
 data.info()
 data.describe()
@@ -680,7 +676,7 @@ plt.grid(True)
 
 data.DoctorsVisitsNBR.value_counts(normalize = True, sort=False)
 data['DoctorsVisitsGTX'] = np.where(data.DoctorsVisitsNBR > 11, True, False)
-'''dummy answer is 6.15%'''
+'''dummy answer is 6.15% excluding 2009 data and 6.32% with 2009 data'''
 data.DoctorsVisitsGTX.mean()
 
 features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
@@ -724,9 +720,13 @@ logreg = LogisticRegression(C=1e9)
 scores = cross_validation.cross_val_score(logreg, X, y, scoring='accuracy', cv=5)
 print scores.mean()
 
-'''cross-validated accuracy of 93.85% with scale (nearly identical result)'''
+'''cross-validated accuracy of 93.85% with scale (nearly identical result)
+   Note: took 10 seconds to run on all data
+'''
 logreg = LogisticRegression(C=1e9)
+start = time()
 scores = cross_validation.cross_val_score(logreg, X_scaled, y, scoring='accuracy', cv=5)
+print time() - start
 print scores.mean()
 
 
@@ -913,7 +913,6 @@ scores = cross_validation.cross_val_score(logreg, X_r, y, scoring='accuracy', cv
 print scores.mean()
 
 ###############################################################################
-###############################################################################
 ### KNN ### 
 
 from sklearn.neighbors import KNeighborsClassifier
@@ -928,17 +927,18 @@ features_scaled = scaler.fit_transform(features)
 X_scaled = scaler.fit_transform(X)
 
 '''running on train / test data to determine optimal k value'''
-#X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
-#knn = KNeighborsClassifier(n_neighbors=11)
-#knn.fit(X_train, y_train)
-#knn.score(X_test, y_test)
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
+knn = KNeighborsClassifier(n_neighbors=101)
+knn.fit(X_train, y_train)
+knn.score(X_test, y_test)
 
-    from sklearn.grid_search import GridSearchCV
-    knn = KNeighborsClassifier()
-    k_range = range(1, 30, 2)
-    param_grid = dict(n_neighbors=k_range)
-    grid = GridSearchCV(knn, param_grid, cv=5, scoring='accuracy')
-    grid.fit(X_scaled, y)
+'''took 15 hours to run'''
+from sklearn.grid_search import GridSearchCV
+knn = KNeighborsClassifier()
+k_range = range(31, 200, 5)
+param_grid = dict(n_neighbors=k_range)
+grid = GridSearchCV(knn, param_grid, cv=5, scoring='accuracy')
+grid.fit(X_scaled, y)
 
 grid.grid_scores_
 grid_mean_scores = [result[1] for result in grid.grid_scores_]
@@ -947,12 +947,54 @@ grid_mean_scores = [result[1] for result in grid.grid_scores_]
 plt.figure()
 plt.plot(k_range, grid_mean_scores)
 
-print 'best cross validated score'
+'''best cross validated score is 93.862% at 29k.  Also had peak at 51k (93.861%)'''
 grid.best_score_     # shows us the best score
 grid.best_params_    # shows us the optimal parameters
 grid.best_estimator_ # this is the actual model
 
+###############################################################################
+### SGD ### 
+from sklearn import linear_model
 
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
+X, y = features, response 
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+X_scaled = scaler.fit_transform(X)
+
+
+from sklearn import metrics
+from sklearn import cross_validation
+from sklearn.cross_validation import train_test_split
+from time import time
+
+### Linear SVM (default 'hinge' loss funcation) ### 
+'''cross-validated accuracy of 93.3% with scale (nearly identical result)
+   Note: took 1.6 seconds to run on all data'''
+clf = linear_model.SGDClassifier()
+start = time()
+scores = cross_validation.cross_val_score(clf, X_scaled, y, scoring='accuracy', cv=5)
+print time() - start
+print scores.mean()
+
+### Log Regression ### 
+'''cross-validated accuracy of 92.9% with scale (nearly identical result)
+   Note: took 2 seconds to run on all data'''
+clf = linear_model.SGDClassifier(loss='log', weights = weights)
+start = time()
+scores = cross_validation.cross_val_score(clf, X_scaled, y, scoring='accuracy', cv=5)
+print time() - start
+print scores.mean()
+
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
 
 ###############################################################################
 
