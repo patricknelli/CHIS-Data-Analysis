@@ -278,6 +278,714 @@ y = np.empty(data.shape[0])
 y.fill(data.DoctorsVisitsNBR.mean())
 np.sqrt(metrics.mean_squared_error(data.DoctorsVisitsNBR, y))
 
+
+
+###############################################################################
+
+###############################################################################
+
+##### BELOW CODE PREDICTS IF DoctorsVisitsNBR is Greater than a specific X ####
+
+###############################################################################
+
+###############################################################################
+
+###############################################################################
+##### LOGISTIC REGRESSION  WITH > 11 DOCTORS VISITS #####
+
+from sklearn import metrics
+from sklearn import cross_validation
+from sklearn.cross_validation import train_test_split
+from time import time
+from scipy.stats import randint as sp_randint
+
+data.DoctorsVisitsNBR.value_counts(normalize = True, sort=False)
+data['DoctorsVisitsGTX'] = np.where(data.DoctorsVisitsNBR > 11, True, False)
+'''dummy answer is 6.15% excluding 2009 data and 6.32% with 2009 data'''
+1- data.DoctorsVisitsGTX.mean()
+
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
+X, y = features, response 
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+X_scaled = scaler.fit_transform(X)
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.fit_transform(X_test)
+
+'''initial fits below to explore the data'''
+from sklearn.linear_model import LogisticRegression
+
+'''running on train and test data'''
+logreg = LogisticRegression(C=1e9)
+logreg.fit(X_train, y_train)
+
+print 'intercept and coefficient'
+print logreg.intercept_ 
+print logreg.coef_
+
+y_preds = logreg.predict(X_test)
+
+testResults = pd.DataFrame(zip(y_preds, y_test), columns = ['Prediction','Actual'])
+testResults['Correct'] = testResults.Prediction == testResults.Actual 
+
+'''results in 93.91% accuracy'''
+print 'accuracy:'
+print metrics.accuracy_score(testResults.Actual, testResults.Prediction)
+print 'classification report:'
+print metrics.classification_report(testResults.Actual, testResults.Prediction)
+
+'''cross-validated accuracy of 93.85% without scale'''
+logreg = LogisticRegression(C=1e9)
+scores = cross_validation.cross_val_score(logreg, X, y, scoring='accuracy', cv=5)
+print scores.mean()
+
+'''cross-validated accuracy of 93.85% with scale (nearly identical result)
+   Note: took 10 seconds to run on all data
+'''
+logreg = LogisticRegression(C=1e9)
+start = time()
+scores = cross_validation.cross_val_score(logreg, X_scaled, y, scoring='accuracy', cv=5)
+print time() - start
+print scores.mean()
+
+'''train test split:
+   Note: took 10 seconds to run on all data
+'''
+logreg = LogisticRegression(C=1e9)
+start = time()
+scores = cross_validation.cross_val_score(logreg, X_scaled, y, scoring='roc_auc', cv=5)
+print time() - start
+print scores.mean()
+
+
+logreg.fit(X_train_scaled, y_train)
+
+y_preds = logreg.predict(X_test_scaled)
+
+from nltk import ConfusionMatrix
+print ConfusionMatrix(list(y_test), list(y_preds))
+
+## ROC CURVES and AUC
+
+# plot ROC curve
+probs = logreg.predict_proba(X_test_scaled)[:, 1]
+fpr, tpr, thresholds = metrics.roc_curve(y_test, probs)
+plt.plot(fpr, tpr)
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.0])
+plt.xlabel('False Positive Rate (1 - Specificity)')
+plt.ylabel('True Positive Rate (Sensitivity)')
+
+# calculate AUC
+print metrics.roc_auc_score(y_test, probs)
+
+probs = logreg.predict_proba(X_test_scaled)[:, 1]
+preds = np.where(probs > 0.2, 1, 0)
+confusion = ConfusionMatrix(list(y_test), list(preds))
+print confusion 
+PredictedTrueOfTotal = (confusion[0,1] + float(confusion[1,1])) / len(y_test)
+print PredictedTrueOfTotal 
+TPR = confusion[1,1] / (confusion[1,0] + float(confusion[1,1]))
+print TPR 
+Accuracy = (confusion[0,0] + float(confusion[1,1])) / len(y_test)
+print Accuracy 
+
+''' Trying to identify for caring for 10% of the population, what % of positive
+cases can I cover'''
+
+PredictedTrueOfTotalList = []
+TPRList = []
+AccuracyList = []
+threshold = range(1,20,1) 
+threshold = [x / 20.0 for x in threshold]
+for i in threshold:
+    preds = np.where(probs > i, 1, 0)
+    confusion = ConfusionMatrix(list(y_test), list(preds))
+    PredictedTrueOfTotal = (confusion[0,1] + float(confusion[1,1])) / len(y_test)
+    PredictedTrueOfTotalList.append(PredictedTrueOfTotal)
+    TPR = confusion[1,1] / (confusion[1,0] + float(confusion[1,1]))
+    TPRList.append(TPR)
+    Accuracy = (confusion[0,0] + float(confusion[1,1])) / len(y_test)
+    AccuracyList.append(Accuracy)
+
+plt.plot(PredictedTrueOfTotalList, TPRList, label = '% of total predicted positive')
+plt.axvline(x=.1, ymin=0, ymax=1, color='r', ls = '--')
+plt.xlabel('% of Total Predicted True')
+plt.ylabel('True Positive Rate')
+
+''' OLD code to look at threshold versus TPR, accuract, etc.
+plt.plot(threshold, PredictedTrueOfTotalList, label = '% of total predicted positive')
+plt.plot(threshold, TPRList, label = 'TPR')
+plt.plot(threshold, AccuracyList, label = 'Accuracy')
+plt.legend()
+plt.xlabel('Threshold')
+plt.ylabel('Percentage')
+'''
+
+###############################################################################
+#### Decision Trees ####
+from sklearn import tree
+from sklearn.cross_validation import train_test_split
+
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
+X, y = features, response 
+
+
+X_train, X_test, y_train, y_test = train_test_split(features, response, random_state=1)
+
+
+from sklearn.tree import DecisionTreeClassifier
+ctree = tree.DecisionTreeClassifier(max_depth = 5, random_state=1)
+ctree.fit(X_train, y_train)
+
+'''note: lowest cross validated rmse is 56.97% with max_depth of 5'''
+from sklearn.cross_validation import cross_val_score
+ctree = tree.DecisionTreeClassifier(random_state=1)
+cross_val_score(ctree, X_train, y_train, cv=10, scoring='roc_auc').mean()
+
+#gathering importance
+ctree = tree.DecisionTreeClassifier(max_depth=5, random_state=1)
+ctree.fit(X_train, y_train)
+
+feature_cols = features.columns
+pd.DataFrame({'feature':feature_cols, 'importance':ctree.feature_importances_})
+
+from sklearn.tree import export_graphviz
+with open("DoctorsVisits_tree.dot", 'wb') as f:
+    f = export_graphviz(ctree, out_file=f, feature_names=feature_cols)
+#below code didn't work - converted with GVEdit GUI
+from os import system
+system("dot -Tpng DoctorsVisits_tree.dot -o DoctorsVisits_tree.png")
+
+
+###############################################################################
+#### Random forests ####
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.grid_search import RandomizedSearchCV
+
+rfclf = RandomForestClassifier(n_estimators=100, max_features='auto', oob_score=True, random_state=1)
+rfclf.fit(features, response)
+
+cross_val_score(rfclf, features, response, cv=10, scoring='accuracy')
+
+pd.DataFrame({'feature':feature_cols, 'importance':rfclf.feature_importances_})
+
+float(rfclf.oob_score_ )
+
+### grid search ###
+rfclf = RandomForestClassifier(oob_score=True, random_state=1, n_jobs = -1)
+n_estimators = range(100, 600, 100)
+depth_range = range(5, 30, 2)
+param_grid = dict(n_estimators=n_estimators, max_depth=depth_range)
+grid = GridSearchCV(rfclf, param_grid, cv=5, scoring='accuracy')
+grid.fit(features, response)
+
+grid_mean_scores = [result[1] for result in grid.grid_scores_]
+
+# Plot the results of the grid search
+plt.figure()
+plt.plot(n_estimators, grid_mean_scores)
+plt.hold(True)
+plt.grid(True)
+plt.plot(grid.best_params_['max_depth'], grid.best_score_, 'ro', markersize=12, markeredgewidth=1.5,
+         markerfacecolor='None', markeredgecolor='r')
+
+# Get the best estimator
+best = grid.best_estimator_
+
+''' Best parameters from grid search are listed below:
+RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini',
+            max_depth=29, max_features='auto', max_leaf_nodes=None,
+            min_samples_leaf=1, min_samples_split=2,
+            min_weight_fraction_leaf=0.0, n_estimators=400, n_jobs=-1,
+            oob_score=True, random_state=1, verbose=0, warm_start=False
+'''
+
+'''ideal feaures results in 93.9% accuracy'''
+cross_val_score(best, features, response, cv=5, scoring='accuracy')
+
+'''best features are AgeRangeNBR, IncomeNBR, BMINBR, SodaNBR, FastFoodNBR, 
+   TimeWalkNBR, PatientHospitalizedFLG, EducationCD'''
+
+pd.DataFrame({'feature':feature_cols, 'importance':best.feature_importances_})
+
+### Additional Random Forest Parameter Optimization ###
+from sklearn.grid_search import RandomizedSearchCV
+from time import time
+from scipy.stats import randint as sp_randint
+
+# specify parameters and distributions to sample from
+param_dist = {"n_estimators": range(200, 800, 100),
+              "max_depth": [5, None],
+              "max_features": sp_randint(3, 52),
+              "min_samples_split": sp_randint(2, 100),
+              "min_samples_leaf": sp_randint(1, 50),
+              "bootstrap": [True, False]}
+
+# run randomized search
+rf = RandomForestClassifier(oob_score=False, random_state=1, criterion = 'gini', \
+n_jobs = -1)
+
+n_iter_search = 100
+random_search = RandomizedSearchCV(rf, param_distributions=param_dist,\
+n_iter=n_iter_search)
+
+start = time()
+random_search.fit(X, y)
+print("RandomizedSearchCV took %.2f seconds for %d candidates"
+      " parameter settings." % ((time() - start), n_iter_search))
+
+random_search.grid_scores_
+random_search.best_score_
+random_search.best_estimator_
+random_search.best_params_
+
+'''best search resulted in 93.94% accuracy and the following parameters and 
+took 4.2 hours to run:
+
+RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini',
+            max_depth=None, max_features=49, max_leaf_nodes=None,
+            min_samples_leaf=9, min_samples_split=16,
+            min_weight_fraction_leaf=0.0, n_estimators=300, n_jobs=-1,
+            oob_score=False, random_state=1, verbose=0, warm_start=False)
+
+'''           
+'''run best model (parameters listed above) on test data'''
+rf = random_search.best_estimator_
+rf.fit(X_scaled, y)
+
+feature_importanceRFR1 = pd.DataFrame({'feature':feature_cols, 'importance':rf.feature_importances_})
+
+'''look at ROC_AUC curve'''
+rf = RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini',
+            max_depth=None, max_features=49, max_leaf_nodes=None,
+            min_samples_leaf=9, min_samples_split=16,
+            min_weight_fraction_leaf=0.0, n_estimators=300, n_jobs=-1,
+            oob_score=False, random_state=1, verbose=0, warm_start=False)
+rf.fit(X_train_scaled, y_train)
+probs = rf.predict_proba(X_test_scaled)[:, 1]
+fpr, tpr, thresholds = metrics.roc_curve(y_test, probs)
+plt.plot(fpr, tpr)
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.0])
+plt.xlabel('False Positive Rate (1 - Specificity)')
+plt.ylabel('True Positive Rate (Sensitivity)')
+
+# calculate AUC
+print metrics.roc_auc_score(y_test, probs)
+
+# adjust threshold
+preds = np.where(probs > 0.1, 1, 0)
+print ConfusionMatrix(list(y_test), list(preds))
+
+
+''' Trying to identify for caring for 10% of the population, what % of positive
+cases can I cover'''
+probs = rf.predict_proba(X_test_scaled)[:, 1]
+PredictedTrueOfTotalList = []
+TPRList = []
+AccuracyList = []
+threshold = range(1,20,1) 
+threshold = [x / 20.0 for x in threshold]
+for i in threshold:
+    preds = np.where(probs > i, 1, 0)
+    confusion = ConfusionMatrix(list(y_test), list(preds))
+    PredictedTrueOfTotal = (confusion[0,1] + float(confusion[1,1])) / len(y_test)
+    PredictedTrueOfTotalList.append(PredictedTrueOfTotal)
+    TPR = confusion[1,1] / (confusion[1,0] + float(confusion[1,1]))
+    TPRList.append(TPR)
+    Accuracy = (confusion[0,0] + float(confusion[1,1])) / len(y_test)
+    AccuracyList.append(Accuracy)
+
+plt.plot(PredictedTrueOfTotalList, TPRList, label = '% of total predicted positive')
+plt.axvline(x=.1, ymin=0, ymax=1, color='r', ls = '--')
+plt.xlabel('% of Total Predicted True')
+plt.ylabel('True Positive Rate')
+
+###############################################################################
+############## XGBoost ############
+import pandas as pd
+import numpy as np
+import xgboost as xgb
+
+from sklearn.cross_validation import KFold, train_test_split
+from sklearn.metrics import confusion_matrix, mean_squared_error
+from sklearn.grid_search import GridSearchCV
+
+#first test of xg boost
+dtrain = xgb.DMatrix(X, label=y)
+                        
+param = {'n_estimators':100, 'max_depth':2, 'eta':1, 'silent':True, \
+        'objective':'binary:logistic', 'learning_rate':0.025}
+num_round = 10
+
+xgb.cv(param, dtrain, num_round, nfold=5,
+       metrics={'error'}, seed = 0)
+
+'''
+clf = xgb.XGBClassifier(n_estimators=25,
+                        nthread=-1,
+                        max_depth=10,
+                        learning_rate=0.025,
+                        silent=True,
+                        subsample=0.8,
+                        colsample_bytree=0.8)
+xgb_model = clf.fit(X, y, eval_metric="auc")
+'''
+
+'''grid search below results in best accuracy of 93.740% and took 2 hours to run'''
+print("Parameter optimization")
+xgb_model = xgb.XGBClassifier()
+clf = GridSearchCV(xgb_model,
+                   {'max_depth': range(2, 12, 2),
+                    'n_estimators': [200, 400],
+                    'learning_rate':[0.01, 0.1, .5]}, verbose=1)
+clf.fit(X,y)
+print(clf.best_score_)
+print(clf.best_params_)
+
+'''best paramerters: 
+{'n_estimators': 200, 'learning_rate': 0.1, 'max_depth': 2
+'''
+
+clf = xgb.XGBClassifier(clf.best_params_)
+# Or you can use: clf = xgb.XGBClassifier(**param_dist)
+
+clf.fit(X_train, y_train,
+        eval_set=[(X_train, y_train), (X_test, y_test)], 
+        eval_metric='error',
+        verbose=True)
+
+evals_result = clf.evals_result()
+
+
+import pickle
+
+# The sklearn API models are picklable
+print("Pickling sklearn API models")
+# must open in binary format to pickle
+pickle.dump(clf, open("best_xgboost.pkl", "wb"))
+clf2 = pickle.load(open("best_xgboost.pkl", "rb"))
+
+
+
+###############################################################################
+############## SVM ############
+from sklearn import svm
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+X_scaled = scaler.fit_transform(X)
+
+#### Initial Fit ####
+
+clf = svm.SVC(C=1.0, kernel='poly') # ‘linear’, ‘poly’, ‘rbf’, ‘sigmoid’
+clf.fit(X_scaled, y)
+
+'''average accuracy of 93.88% for rbf; 93.84% for linear 
+   and 93.58% for ploy (3 degrees)'''
+crossValScore = cross_val_score(clf, X_scaled, y, cv=3, scoring='accuracy')
+crossValScore.mean()
+
+
+###############################################################################
+#########   PCA   ##########
+from sklearn import decomposition
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+pca = decomposition.PCA(n_components=X_scaled.shape[1])
+X_r = pca.fit_transform(X_scaled)
+
+# Percentage of variance explained for each components
+print('explained variance ratio: %s'
+      % str(pca.explained_variance_ratio_))
+
+plt.cla()
+plt.plot(pca.explained_variance_ratio_)
+plt.title('Variance explained by each principal component')
+plt.ylabel(' % Variance Explained')
+plt.xlabel('Principal component')
+
+### REPEAT LOGISTIC REGRESSION WITH SCALING AND PCA ###
+'''7 components based on elbow rule from PCA chart above '''
+pca = decomposition.PCA(n_components=7)
+X_r = pca.fit_transform(X_scaled)
+
+'''cross-validated accuracy of 93.78% with 7 components'''
+logreg = LogisticRegression(C=1e9)
+scores = cross_validation.cross_val_score(logreg, X_r, y, scoring='accuracy', cv=5)
+print scores.mean()
+
+###############################################################################
+### KNN ### 
+
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.cross_validation import train_test_split
+from sklearn.cross_validation import cross_val_score
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
+X, y = features, response 
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+X_scaled = scaler.fit_transform(X)
+
+'''running on train / test data to determine optimal k value'''
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
+knn = KNeighborsClassifier(n_neighbors=101)
+knn.fit(X_train, y_train)
+knn.score(X_test, y_test)
+
+'''took 15 hours to run'''
+from sklearn.grid_search import GridSearchCV
+knn = KNeighborsClassifier()
+k_range = range(31, 200, 5)
+param_grid = dict(n_neighbors=k_range)
+grid = GridSearchCV(knn, param_grid, cv=5, scoring='accuracy')
+grid.fit(X_scaled, y)
+
+grid.grid_scores_
+grid_mean_scores = [result[1] for result in grid.grid_scores_]
+
+# plot the results
+plt.figure()
+plt.plot(k_range, grid_mean_scores)
+
+'''best cross validated score is 93.862% at 29k.  Also had peak at 51k (93.861%)'''
+grid.best_score_     # shows us the best score
+grid.best_params_    # shows us the optimal parameters
+grid.best_estimator_ # this is the actual model
+
+###############################################################################
+### SGD ### 
+from sklearn import linear_model
+
+features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
+X, y = features, response 
+
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+X_scaled = scaler.fit_transform(X)
+
+
+from sklearn import metrics
+from sklearn import cross_validation
+from sklearn.cross_validation import train_test_split
+from time import time
+
+### Linear SVM (default 'hinge' loss funcation) ### 
+'''cross-validated accuracy of 93.3% with scale (nearly identical result)
+   Note: took 1.6 seconds to run on all data'''
+clf = linear_model.SGDClassifier()
+start = time()
+scores = cross_validation.cross_val_score(clf, X_scaled, y, scoring='accuracy', cv=5)
+print time() - start
+print scores.mean()
+
+### Log Regression ### 
+'''cross-validated accuracy of 92.9% with scale (lower than with typical linear
+    regression)
+   Note: took 2 seconds to run on all data'''
+clf = linear_model.SGDClassifier(loss='log', weights = weights)
+start = time()
+scores = cross_validation.cross_val_score(clf, X_scaled, y, scoring='accuracy', cv=5)
+print time() - start
+print scores.mean()
+
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
+
+''' Trying to identify for caring for 10% of the population, what % of positive
+cases can I cover'''
+clf = linear_model.SGDClassifier(loss='log')
+clf.fit(X_train_scaled, y_train)
+probs = clf.predict_proba(X_test_scaled)[:, 1]
+PredictedTrueOfTotalList = []
+TPRList = []
+AccuracyList = []
+threshold = range(1,50,1) 
+threshold = [x / 50.0 for x in threshold]
+for i in threshold:
+    preds = np.where(probs > i, 1, 0)
+    confusion = ConfusionMatrix(list(y_test), list(preds))
+    PredictedTrueOfTotal = (confusion[0,1] + float(confusion[1,1])) / len(y_test)
+    PredictedTrueOfTotalList.append(PredictedTrueOfTotal)
+    TPR = confusion[1,1] / (confusion[1,0] + float(confusion[1,1]))
+    TPRList.append(TPR)
+    Accuracy = (confusion[0,0] + float(confusion[1,1])) / len(y_test)
+    AccuracyList.append(Accuracy)
+
+plt.plot(PredictedTrueOfTotalList, TPRList, label = '% of total predicted positive')
+plt.axvline(x=.1, ymin=0, ymax=1, color='r', ls = '--')
+plt.xlabel('% of Total Predicted True')
+plt.ylabel('True Positive Rate')
+
+###############################################################################
+### Gradient Boosted Trees ### 
+from sklearn.ensemble import GradientBoostingClassifier
+
+clf = GradientBoostingClassifier(n_estimators=100, learning_rate=1.0,\
+max_depth=1, random_state=0).fit(X_train_scaled, y_train)
+
+clf.score(X_test_scaled, y_test)
+
+### Additional Random Forest Parameter Optimization ###
+from sklearn.grid_search import RandomizedSearchCV
+from time import time
+from scipy.stats import randint as sp_randint
+
+# specify parameters and distributions to sample from
+param_dist = {"n_estimators": range(50, 550, 100),
+              "max_depth": range(1, 10, 1),
+              "learning_rate": [.001,.01,.1,1],
+              "min_samples_split": sp_randint(2, 100),
+              "min_samples_leaf": sp_randint(1, 50),
+              "loss": ["deviance", "exponential"]}
+
+# run randomized search
+clf = GradientBoostingClassifier(random_state=1)
+
+n_iter_search = 50
+random_search = RandomizedSearchCV(clf, param_distributions=param_dist,\
+n_iter=n_iter_search)
+
+start = time()
+random_search.fit(X, y)
+print("RandomizedSearchCV took %.2f seconds for %d candidates"
+      " parameter settings." % ((time() - start), n_iter_search))
+
+random_search.grid_scores_
+random_search.best_score_
+random_search.best_estimator_
+random_search.best_params_
+
+'''best search resulted in 93.73% accuracy and the following parameters and 
+took 6.8 hours to run:
+
+GradientBoostingClassifier(init=None, learning_rate=0.1, loss='deviance',
+              max_depth=2, max_features=None, max_leaf_nodes=None,
+              min_samples_leaf=33, min_samples_split=85,
+              min_weight_fraction_leaf=0.0, n_estimators=250,
+              random_state=1, subsample=1.0, verbose=0, warm_start=False)
+
+
+'''           
+'''run best model (parameters listed above) on test data'''
+clf = random_search.best_estimator_
+clf.fit(X, y)
+
+'''ideal feaures results in 93.737% accuracy'''
+cross_val_score(clf, X, y, cv=5, scoring='accuracy')
+
+
+###############################################################################
+### Feed Forward Neural Network ### 
+
+from pybrain.datasets            import ClassificationDataSet
+from pybrain.utilities           import percentError
+from pybrain.tools.shortcuts     import buildNetwork
+from pybrain.supervised.trainers import BackpropTrainer
+from pybrain.structure.modules   import SoftmaxLayer
+from numpy import ravel
+
+
+# pybrain has its own data sample class that we must add
+# our training and test set to
+ds = ClassificationDataSet(X_scaled.shape[1], 1 , nb_classes=2)
+for k in xrange(X_scaled.shape[0]): 
+    ds.addSample(ravel(X_scaled[k]),y[k])
+
+# their equivalent of train test split
+test_data, training_data = ds.splitWithProportion( 0.25 )
+
+
+len(training_data.data['input'][0])
+
+test_data
+
+# pybrain's version of dummy variables '''ASK ABOUT THIS - IS THIS NEEDED?'''
+test_data._convertToOneOfMany( )
+training_data._convertToOneOfMany( )
+
+
+training_data['input']
+training_data['target']
+
+test_data.indim
+test_data.outdim
+
+# instantiate the model
+fnn = buildNetwork( training_data.indim, 64, training_data.outdim, outclass=SoftmaxLayer )
+trainer = BackpropTrainer( fnn, dataset=training_data, momentum=0.1, learningrate=0.1 , verbose=True, weightdecay=0.01) 
+
+'''93.61% accuracy after 10 epochs'''
+# change the number of eopchs to try to get better results!
+trainer.trainEpochs (50)
+print 'Percent Error on Test dataset: ' , \
+        percentError( trainer.testOnClassData (
+           dataset=test_data )
+           , test_data['class'] )
+
+
+###############################################################################
+### Voting Classifiers ### 
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import VotingClassifier
+
+clf1 = LogisticRegression(random_state=1)
+clf2 = RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini',
+            max_depth=None, max_features=49, max_leaf_nodes=None,
+            min_samples_leaf=9, min_samples_split=16,
+            min_weight_fraction_leaf=0.0, n_estimators=300, n_jobs=-1,
+            oob_score=False, random_state=1, verbose=0, warm_start=False)
+clf3 = GradientBoostingClassifier(init=None, learning_rate=0.1, loss='deviance',
+              max_depth=2, max_features=None, max_leaf_nodes=None,
+              min_samples_leaf=33, min_samples_split=85,
+              min_weight_fraction_leaf=0.0, n_estimators=250,
+              random_state=1, subsample=1.0, verbose=0, warm_start=False)
+
+eclf = VotingClassifier(estimators=[('lr', clf1), ('rf', clf2), ('gb', clf3)], voting='hard')
+
+for clf, label in zip([clf1, clf2, clf3, eclf], ['Logistic Regression', 'Random Forest', 'Gradient Boosted Trees', 'Ensemble']):
+    scores = cross_validation.cross_val_score(clf, X_scaled, y, cv=5, scoring='accuracy')
+    print("Accuracy: %0.4f (+/- %0.4f) [%s]" % (scores.mean(), scores.std(), label))
+
+'''
+
+
+'''
+
+
+###############################################################################
+
+###############################################################################
+
+###############################################################################
+
+###############################################################################
+
+### BELOW CODE IS FOR PREDICTING NUMBER OF DOCOTRS VISITS -USING REGRESSION ###
+
+###############################################################################
+
+###############################################################################
+
+###############################################################################
+
+
 ###############################################################################
 ### LINEAR REGRESSION ###
 from sklearn.linear_model import LinearRegression
@@ -660,341 +1368,6 @@ plt.grid(True)
 
 
 
-
-###############################################################################
-
-###############################################################################
-
-##### BELOW CODE PREDICTS IF DoctorsVisitsNBR is Greater than a specific X ####
-
-###############################################################################
-
-###############################################################################
-
-###############################################################################
-##### LOGISTIC REGRESSION  WITH > 11 DOCTORS VISITS #####
-
-data.DoctorsVisitsNBR.value_counts(normalize = True, sort=False)
-data['DoctorsVisitsGTX'] = np.where(data.DoctorsVisitsNBR > 11, True, False)
-'''dummy answer is 6.15% excluding 2009 data and 6.32% with 2009 data'''
-data.DoctorsVisitsGTX.mean()
-
-features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
-X, y = features, response 
-
-from sklearn.preprocessing import StandardScaler
-scaler = StandardScaler()
-features_scaled = scaler.fit_transform(features)
-X_scaled = scaler.fit_transform(X)
-
-
-from sklearn import metrics
-from sklearn import cross_validation
-from sklearn.cross_validation import train_test_split
-
-'''initial fits below to explore the data'''
-from sklearn.linear_model import LogisticRegression
-
-'''running on train and test data'''
-X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
-logreg = LogisticRegression(C=1e9)
-logreg.fit(X_train, y_train)
-
-print 'intercept and coefficient'
-print logreg.intercept_ 
-print logreg.coef_
-
-y_preds = logreg.predict(X_test)
-
-testResults = pd.DataFrame(zip(y_preds, y_test), columns = ['Prediction','Actual'])
-testResults['Correct'] = testResults.Prediction == testResults.Actual 
-
-'''results in 93.91% accuracy'''
-print 'accuracy:'
-print metrics.accuracy_score(testResults.Actual, testResults.Prediction)
-print 'classification report:'
-print metrics.classification_report(testResults.Actual, testResults.Prediction)
-
-'''cross-validated accuracy of 93.85% without scale'''
-logreg = LogisticRegression(C=1e9)
-scores = cross_validation.cross_val_score(logreg, X, y, scoring='accuracy', cv=5)
-print scores.mean()
-
-'''cross-validated accuracy of 93.85% with scale (nearly identical result)
-   Note: took 10 seconds to run on all data
-'''
-logreg = LogisticRegression(C=1e9)
-start = time()
-scores = cross_validation.cross_val_score(logreg, X_scaled, y, scoring='accuracy', cv=5)
-print time() - start
-print scores.mean()
-
-
-###############################################################################
-#### Decision Trees ####
-from sklearn import tree
-from sklearn.cross_validation import train_test_split
-
-features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
-X, y = features, response 
-
-
-X_train, X_test, y_train, y_test = train_test_split(features, response, random_state=1)
-
-
-from sklearn.tree import DecisionTreeClassifier
-ctree = tree.DecisionTreeClassifier(max_depth = 5, random_state=1)
-ctree.fit(X_train, y_train)
-
-'''note: lowest cross validated rmse is 56.97% with max_depth of 5'''
-from sklearn.cross_validation import cross_val_score
-ctree = tree.DecisionTreeClassifier(random_state=1)
-cross_val_score(ctree, X_train, y_train, cv=10, scoring='roc_auc').mean()
-
-#gathering importance
-ctree = tree.DecisionTreeClassifier(max_depth=5, random_state=1)
-ctree.fit(X_train, y_train)
-
-feature_cols = features.columns
-pd.DataFrame({'feature':feature_cols, 'importance':ctree.feature_importances_})
-
-from sklearn.tree import export_graphviz
-with open("DoctorsVisits_tree.dot", 'wb') as f:
-    f = export_graphviz(ctree, out_file=f, feature_names=feature_cols)
-#below code didn't work - converted with GVEdit GUI
-from os import system
-system("dot -Tpng DoctorsVisits_tree.dot -o DoctorsVisits_tree.png")
-
-
-###############################################################################
-#### Random forests ####
-from sklearn.ensemble import RandomForestClassifier
-rfclf = RandomForestClassifier(n_estimators=100, max_features='auto', oob_score=True, random_state=1)
-rfclf.fit(features, response)
-
-cross_val_score(rfclf, features, response, cv=10, scoring='accuracy')
-
-pd.DataFrame({'feature':feature_cols, 'importance':rfclf.feature_importances_})
-
-float(rfclf.oob_score_ )
-
-### grid search ###
-rfclf = RandomForestClassifier(oob_score=True, random_state=1, n_jobs = -1)
-n_estimators = range(100, 600, 100)
-depth_range = range(5, 30, 2)
-param_grid = dict(n_estimators=n_estimators, max_depth=depth_range)
-grid = GridSearchCV(rfclf, param_grid, cv=5, scoring='accuracy')
-grid.fit(features, response)
-
-grid_mean_scores = [result[1] for result in grid.grid_scores_]
-
-# Plot the results of the grid search
-plt.figure()
-plt.plot(n_estimators, grid_mean_scores)
-plt.hold(True)
-plt.grid(True)
-plt.plot(grid.best_params_['max_depth'], grid.best_score_, 'ro', markersize=12, markeredgewidth=1.5,
-         markerfacecolor='None', markeredgecolor='r')
-
-# Get the best estimator
-best = grid.best_estimator_
-
-''' Best parameters from grid search are listed below:
-RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini',
-            max_depth=29, max_features='auto', max_leaf_nodes=None,
-            min_samples_leaf=1, min_samples_split=2,
-            min_weight_fraction_leaf=0.0, n_estimators=400, n_jobs=-1,
-            oob_score=True, random_state=1, verbose=0, warm_start=False
-'''
-
-'''ideal feaures results in 93.9% accuracy'''
-cross_val_score(best, features, response, cv=5, scoring='accuracy')
-
-'''best features are AgeRangeNBR, IncomeNBR, BMINBR, SodaNBR, FastFoodNBR, 
-   TimeWalkNBR, PatientHospitalizedFLG, EducationCD'''
-
-pd.DataFrame({'feature':feature_cols, 'importance':best.feature_importances_})
-
-### Additional Random Forest Parameter Optimization ###
-from sklearn.grid_search import RandomizedSearchCV
-from time import time
-from scipy.stats import randint as sp_randint
-
-# specify parameters and distributions to sample from
-param_dist = {"n_estimators": range(200, 800, 100),
-              "max_depth": [5, None],
-              "max_features": sp_randint(3, 52),
-              "min_samples_split": sp_randint(2, 100),
-              "min_samples_leaf": sp_randint(1, 50),
-              "bootstrap": [True, False]}
-
-# run randomized search
-rf = RandomForestClassifier(oob_score=False, random_state=1, criterion = 'gini', \
-n_jobs = -1)
-
-n_iter_search = 100
-random_search = RandomizedSearchCV(rf, param_distributions=param_dist,\
-n_iter=n_iter_search)
-
-start = time()
-random_search.fit(X, y)
-print("RandomizedSearchCV took %.2f seconds for %d candidates"
-      " parameter settings." % ((time() - start), n_iter_search))
-
-random_search.grid_scores_
-random_search.best_score_
-random_search.best_estimator_
-random_search.best_params_
-
-'''best search resulted in 93.94% accurach and the following parameters and 
-took 4.2 hours to run:
-
-RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini',
-            max_depth=None, max_features=49, max_leaf_nodes=None,
-            min_samples_leaf=9, min_samples_split=16,
-            min_weight_fraction_leaf=0.0, n_estimators=300, n_jobs=-1,
-            oob_score=False, random_state=1, verbose=0, warm_start=False)
-
-'''           
-'''run best model (parameters listed above) on test data'''
-rf = random_search.best_estimator_
-rf.fit(X_scaled, y)
-
-feature_importanceRFR1 = pd.DataFrame({'feature':feature_cols, 'importance':rf.feature_importances_})
-
-
-###############################################################################
-############## SVM ############
-from sklearn import svm
-
-from sklearn.preprocessing import StandardScaler
-scaler = StandardScaler()
-features_scaled = scaler.fit_transform(features)
-X_scaled = scaler.fit_transform(X)
-
-#### Initial Fit ####
-
-clf = svm.SVC(C=1.0, kernel='poly') # ‘linear’, ‘poly’, ‘rbf’, ‘sigmoid’
-clf.fit(X_scaled, y)
-
-'''average accuracy of 93.88% for rbf; 93.84% for linear 
-   and 93.58% for ploy (3 degrees)'''
-crossValScore = cross_val_score(clf, X_scaled, y, cv=3, scoring='accuracy')
-crossValScore.mean()
-
-###############################################################################
-#########   PCA   ##########
-from sklearn import decomposition
-from sklearn.preprocessing import StandardScaler
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-pca = decomposition.PCA(n_components=X_scaled.shape[1])
-X_r = pca.fit_transform(X_scaled)
-
-# Percentage of variance explained for each components
-print('explained variance ratio: %s'
-      % str(pca.explained_variance_ratio_))
-
-plt.cla()
-plt.plot(pca.explained_variance_ratio_)
-plt.title('Variance explained by each principal component')
-plt.ylabel(' % Variance Explained')
-plt.xlabel('Principal component')
-
-### REPEAT LOGISTIC REGRESSION WITH SCALING AND PCA ###
-'''7 components based on elbow rule from PCA chart above '''
-pca = decomposition.PCA(n_components=7)
-X_r = pca.fit_transform(X_scaled)
-
-'''cross-validated accuracy of 93.78% with 7 components'''
-logreg = LogisticRegression(C=1e9)
-scores = cross_validation.cross_val_score(logreg, X_r, y, scoring='accuracy', cv=5)
-print scores.mean()
-
-###############################################################################
-### KNN ### 
-
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.cross_validation import train_test_split
-from sklearn.cross_validation import cross_val_score
-features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
-X, y = features, response 
-
-from sklearn.preprocessing import StandardScaler
-scaler = StandardScaler()
-features_scaled = scaler.fit_transform(features)
-X_scaled = scaler.fit_transform(X)
-
-'''running on train / test data to determine optimal k value'''
-X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=1)
-knn = KNeighborsClassifier(n_neighbors=101)
-knn.fit(X_train, y_train)
-knn.score(X_test, y_test)
-
-'''took 15 hours to run'''
-from sklearn.grid_search import GridSearchCV
-knn = KNeighborsClassifier()
-k_range = range(31, 200, 5)
-param_grid = dict(n_neighbors=k_range)
-grid = GridSearchCV(knn, param_grid, cv=5, scoring='accuracy')
-grid.fit(X_scaled, y)
-
-grid.grid_scores_
-grid_mean_scores = [result[1] for result in grid.grid_scores_]
-
-# plot the results
-plt.figure()
-plt.plot(k_range, grid_mean_scores)
-
-'''best cross validated score is 93.862% at 29k.  Also had peak at 51k (93.861%)'''
-grid.best_score_     # shows us the best score
-grid.best_params_    # shows us the optimal parameters
-grid.best_estimator_ # this is the actual model
-
-###############################################################################
-### SGD ### 
-from sklearn import linear_model
-
-features, response = data.ix[:,1:-1], data.DoctorsVisitsGTX
-X, y = features, response 
-
-from sklearn.preprocessing import StandardScaler
-scaler = StandardScaler()
-features_scaled = scaler.fit_transform(features)
-X_scaled = scaler.fit_transform(X)
-
-
-from sklearn import metrics
-from sklearn import cross_validation
-from sklearn.cross_validation import train_test_split
-from time import time
-
-### Linear SVM (default 'hinge' loss funcation) ### 
-'''cross-validated accuracy of 93.3% with scale (nearly identical result)
-   Note: took 1.6 seconds to run on all data'''
-clf = linear_model.SGDClassifier()
-start = time()
-scores = cross_validation.cross_val_score(clf, X_scaled, y, scoring='accuracy', cv=5)
-print time() - start
-print scores.mean()
-
-### Log Regression ### 
-'''cross-validated accuracy of 92.9% with scale (nearly identical result)
-   Note: took 2 seconds to run on all data'''
-clf = linear_model.SGDClassifier(loss='log', weights = weights)
-start = time()
-scores = cross_validation.cross_val_score(clf, X_scaled, y, scoring='accuracy', cv=5)
-print time() - start
-print scores.mean()
-
-'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
-'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
-'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
-'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
-'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
-'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
-'''NEED TO OPTIMZE LOG REGRESSION AND SVM MODELS'''
 
 ###############################################################################
 
