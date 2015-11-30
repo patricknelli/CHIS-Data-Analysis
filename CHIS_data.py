@@ -300,6 +300,8 @@ data['DoctorsVisitsGTX'] = np.where(data.DoctorsVisitsNBR > 11, True, False)
 '''dummy answer is 6.15% excluding 2009 data and 6.32% with 2009 data'''
 1- data.DoctorsVisitsGTX.mean()
 
+#data.ix[:,1:].to_csv('Outputs/dataAll_transformed_classification.csv', index=False)
+
 plt.figure(figsize=(15,15))
 sns.pairplot(data[['HealthConditionNBR', 'AgeRangeNBR', 'IncomeNBR','BMINBR',\
 'TimeWalkNBR', 'SodaNBR', 'FastFoodNBR', 'HouseHoldSizeNBR','DoctorsVisitsNBR',\
@@ -373,6 +375,9 @@ print ConfusionMatrix(list(y_test), list(y_preds))
 
 # plot ROC curve
 probs = logreg.predict_proba(X_test_scaled)[:, 1]
+plt.hist(probs)
+plt.cla()
+
 fpr, tpr, thresholds = metrics.roc_curve(y_test, probs)
 plt.plot(fpr, tpr)
 plt.xlim([0.0, 1.0])
@@ -425,6 +430,42 @@ plt.legend()
 plt.xlabel('Threshold')
 plt.ylabel('Percentage')
 '''
+
+###############################################################################
+#### Penelized Logistic Regression ####
+
+logreg = LogisticRegression(penalty ='l1', C=1, n_jobs=-1)
+start = time()
+scores = cross_validation.cross_val_score(logreg, X_scaled, y, scoring='accuracy', cv=5)
+print time() - start
+print scores.mean()
+
+'''took a few mintues to run'''
+from sklearn.grid_search import GridSearchCV
+logreg = LogisticRegression(n_jobs=-1)
+penalty = ['l1','l2']
+c = [0.001, 0.01, 0.1, 1, 10, 100]
+param_grid = dict(penalty=penalty, C=c)
+grid = GridSearchCV(logreg, param_grid, cv=5, scoring='accuracy')
+grid.fit(X_scaled, y)
+
+grid_mean_scoresl1 = [result[1] for result in grid.grid_scores_ if result[0]['penalty'] == 'l1']
+grid_mean_scoresl2 = [result[1] for result in grid.grid_scores_ if result[0]['penalty'] == 'l2']
+
+# plot the results
+plt.figure()
+plt.plot(c, grid_mean_scoresl1, label = 'l1')
+plt.plot(c, grid_mean_scoresl2, label = 'l2')
+plt.legend()
+plt.xscale('log')
+plt.yscale('linear')
+plt.title('l1 and l2 Regression')
+
+'''best cross validated score is 93.718% with L1 penalty an C of 0.1'''
+grid.best_score_     # shows us the best score
+grid.best_params_    # shows us the optimal parameters
+grid.best_estimator_ # this is the actual model
+
 
 ###############################################################################
 #### Decision Trees ####
