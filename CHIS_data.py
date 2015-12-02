@@ -234,13 +234,20 @@ for col in list(data.columns):
     print
 
 data.DoctorsVisitsNBR.hist()
-data.DoctorsVisitsNBR.hist(normed=True)
+
+data.DoctorsVisitsNBR.count()
+
+plt.figure()
+plt.hist(data.DoctorsVisitsNBR, normed=True, bins=30)
+plt.xlabel('Number of Doctors Visits')
+plt.ylabel('Relative Frequency')
+plt.title('Histogram of of Doctors Visits (relative)')
+
 data.DoctorsVisitsNBR.describe()
 data.boxplot(column="DoctorsVisitsNBR")
 
-plt.figure(figsize=(15,15))
+plt.figure(figsize=(17,10))
 sns.heatmap(data.corr())
-plt.cla()
 
 plt.figure(figsize=(25,25))
 sns.pairplot(data)
@@ -250,7 +257,7 @@ sns.pairplot(data[['HealthConditionNBR', 'AgeRangeNBR', 'IncomeNBR','BMINBR',\
 'TimeWalkNBR', 'SodaNBR', 'FastFoodNBR', 'HouseHoldSizeNBR',\
 'DoctorsVisitsNBR']], hue='DoctorsVisitsNBR')
 
-
+    
 #This takes several minutes
 for col in data.columns:
     sns.lmplot(x=col, y="DoctorsVisitsNBR", data=data, x_jitter = 0.2, y_jitter = 0.5)
@@ -354,6 +361,15 @@ scores = cross_validation.cross_val_score(logreg, X_scaled, y, scoring='accuracy
 print time() - start
 print scores.mean()
 
+'''cross-validated accuracy of [__]% with scale (nearly identical result)
+   Note: took 10 seconds to run on all data
+'''
+logreg = LogisticRegression(C=1e9, class_weight = 'balanced')
+start = time()
+scores = cross_validation.cross_val_score(logreg, X_scaled, y, scoring='accuracy', cv=5)
+print time() - start
+print scores.mean()
+
 '''train test split:
    Note: took 10 seconds to run on all data
 '''
@@ -405,8 +421,8 @@ cases can I cover'''
 PredictedTrueOfTotalList = []
 TPRList = []
 AccuracyList = []
-threshold = range(1,20,1) 
-threshold = [x / 20.0 for x in threshold]
+threshold = range(1,100,1) 
+threshold = [x / 100.0 for x in threshold]
 for i in threshold:
     preds = np.where(probs > i, 1, 0)
     confusion = ConfusionMatrix(list(y_test), list(preds))
@@ -421,6 +437,9 @@ plt.plot(PredictedTrueOfTotalList, TPRList, label = '% of total predicted positi
 plt.axvline(x=.1, ymin=0, ymax=1, color='r', ls = '--')
 plt.xlabel('% of Total Predicted True')
 plt.ylabel('True Positive Rate')
+
+#see below which threshold resulted in positive 
+pd.DataFrame(zip(PredictedTrueOfTotalList, threshold, TPRList), columns = ['PredictedTrueOfTotalList', 'threshold', 'TPRList'])
 
 ''' OLD code to look at threshold versus TPR, accuract, etc.
 plt.plot(threshold, PredictedTrueOfTotalList, label = '% of total predicted positive')
@@ -465,6 +484,27 @@ plt.title('l1 and l2 Regression')
 grid.best_score_     # shows us the best score
 grid.best_params_    # shows us the optimal parameters
 grid.best_estimator_ # this is the actual model
+
+
+###############################################################################
+#### Naive Bayes ####
+from sklearn.naive_bayes  import GaussianNB
+nb = GaussianNB()
+start = time()
+scores = cross_validation.cross_val_score(nb, X_scaled, y, scoring='accuracy', cv=5)
+print time() - start
+print scores.mean()
+
+nb.fit(X_train_scaled, y_train)
+
+y_preds = nb .predict(X_test_scaled)
+
+from nltk import ConfusionMatrix
+print ConfusionMatrix(list(y_test), list(y_preds))
+
+probs = nb.predict_proba(X_test_scaled)[:, 1]
+preds = np.where(probs > 0.2, 1, 0)
+
 
 
 ###############################################################################
